@@ -1,0 +1,271 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Classic Snake Game</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;min-height:100vh;padding:20px 12px;
+ display:flex;justify-content:center;align-items:center;
+ background:linear-gradient(135deg,#10172f,#211348);
+ color:white;font-family:Arial,sans-serif;
+}
+.game{width:100%;max-width:430px;text-align:center}
+h1{font-size:32px;margin:5px;color:#55ff9b}
+.sub{color:#bdc8e9;margin:8px 0 20px}
+.stats{display:flex;gap:10px;margin-bottom:14px}
+.stat{flex:1;background:#252b49;border:1px solid #41496b;
+ border-radius:12px;padding:12px}
+.stat small{display:block;color:#b9c4e5;margin-bottom:6px}
+.stat strong{font-size:22px;color:#55ff9b}
+.board{
+ position:relative;width:100%;aspect-ratio:1;
+ background:#101a2c;border:3px solid #475a70;
+ border-radius:12px;overflow:hidden;
+ box-shadow:0 0 25px #55ff9b18;
+}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+.message{
+ position:absolute;inset:0;display:flex;flex-direction:column;
+ align-items:center;justify-content:center;background:#07111cce;
+ padding:20px;
+}
+.message h2{font-size:27px;margin:0 0 10px;color:#55ff9b}
+.message p{color:#d1d9ee}
+button{
+ border:0;border-radius:12px;padding:13px 18px;
+ background:#55ff9b;color:#10251b;font-weight:bold;
+ font-size:15px;cursor:pointer;touch-action:manipulation;
+}
+button:active{transform:scale(.96)}
+.actions{display:flex;gap:10px;margin:14px 0}
+.actions button{flex:1}
+#pause{background:#ffc857}
+#sound{background:#9ca9ff}
+.controls{
+ display:grid;grid-template-columns:repeat(3,65px);
+ grid-template-rows:repeat(2,53px);gap:7px;
+ justify-content:center;margin:15px auto;
+}
+.controls button{font-size:23px;padding:5px;background:#313b5d;color:white}
+.controls .up{grid-column:2;grid-row:1}
+.controls .left{grid-column:1;grid-row:2}
+.controls .down{grid-column:2;grid-row:2}
+.controls .right{grid-column:3;grid-row:2}
+.hint{font-size:12px;color:#9eacd0;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="game">
+ <h1>🐍 SNAKE GAME</h1>
+ <div class="sub">Classic fun • Eat • Grow • Survive!</div>
+
+ <div class="stats">
+  <div class="stat"><small>SCORE</small><strong id="score">0</strong></div>
+  <div class="stat"><small>BEST</small><strong id="best">0</strong></div>
+  <div class="stat"><small>SPEED</small><strong id="speed">1</strong></div>
+ </div>
+
+ <div class="board">
+  <canvas id="canvas" width="400" height="400"></canvas>
+  <div class="message" id="message">
+   <h2 id="title">Ready to Play?</h2>
+   <p id="description">Eat the red food. Avoid walls and yourself!</p>
+   <button id="start">▶ START GAME</button>
+  </div>
+ </div>
+
+ <div class="actions">
+  <button id="pause">Ⅱ PAUSE</button>
+  <button id="sound">🔊 SOUND ON</button>
+  <button id="restart">↻ RESTART</button>
+ </div>
+
+ <div class="controls">
+  <button class="up" data-dir="up">▲</button>
+  <button class="left" data-dir="left">◀</button>
+  <button class="down" data-dir="down">▼</button>
+  <button class="right" data-dir="right">▶</button>
+ </div>
+ <div class="hint">PC: Arrow keys / WASD • Mobile: Touch controls</div>
+</div>
+
+<script>
+const canvas=document.getElementById('canvas');
+const ctx=canvas.getContext('2d');
+const $=id=>document.getElementById(id);
+const N=20,C=20;
+let snake,food,dir,nextDir,score,best=0;
+let running=false,paused=false,over=false,sound=true;
+let timer=null,audio=null;
+
+try{best=Number(localStorage.getItem('snakeBest'))||0}catch(e){}
+$('best').textContent=best;
+
+function beep(freq=440,duration=.07){
+ if(!sound)return;
+ try{
+  audio=audio||new (window.AudioContext||window.webkitAudioContext)();
+  if(audio.state==='suspended')audio.resume();
+  const o=audio.createOscillator(),g=audio.createGain();
+  o.frequency.value=freq;o.type='sine';
+  g.gain.value=.045;o.connect(g);g.connect(audio.destination);
+  o.start();g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+duration);
+  o.stop(audio.currentTime+duration);
+ }catch(e){}
+}
+
+function placeFood(){
+ let free=[];
+ for(let y=0;y<N;y++)for(let x=0;x<N;x++)
+  if(!snake.some(p=>p.x===x&&p.y===y))free.push({x,y});
+ if(!free.length){win();return}
+ food=free[Math.floor(Math.random()*free.length)];
+}
+
+function draw(){
+ ctx.fillStyle='#101a2c';ctx.fillRect(0,0,400,400);
+ ctx.strokeStyle='#ffffff08';ctx.lineWidth=1;
+ for(let i=0;i<=N;i++){
+  ctx.beginPath();ctx.moveTo(i*C,0);ctx.lineTo(i*C,400);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,i*C);ctx.lineTo(400,i*C);ctx.stroke();
+ }
+ if(food){
+  ctx.fillStyle='#ff536b';ctx.shadowColor='#ff536b';ctx.shadowBlur=12;
+  ctx.beginPath();ctx.arc(food.x*C+10,food.y*C+10,7,0,Math.PI*2);ctx.fill();
+  ctx.shadowBlur=0;
+ }
+ snake.forEach((p,i)=>{
+  ctx.fillStyle=i===0?'#a0ffbd':'#38d979';
+  ctx.shadowColor='#38d979';ctx.shadowBlur=i===0?9:0;
+  ctx.beginPath();ctx.roundRect(p.x*C+2,p.y*C+2,16,16,5);ctx.fill();
+  if(i===0){
+   ctx.shadowBlur=0;ctx.fillStyle='#123522';
+   let ex=p.x*C+10,ey=p.y*C+10;
+   if(dir.x===1){ex+=4;ey-=3}
+   else if(dir.x===-1){ex-=4;ey-=3}
+   else if(dir.y===1){ex+=3;ey+=4}
+   else{ex+=3;ey-=4}
+   ctx.beginPath();ctx.arc(ex,ey,2,0,Math.PI*2);ctx.fill();
+  }
+ });
+ ctx.shadowBlur=0;
+}
+
+function update(){
+ if(!running||paused||over)return;
+ dir=nextDir;
+ const head={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+ if(head.x<0||head.x>=N||head.y<0||head.y>=N){
+  endGame();return;
+ }
+ const eating=head.x===food.x&&head.y===food.y;
+ const body=eating?snake:snake.slice(0,-1);
+ if(body.some(p=>p.x===head.x&&p.y===head.y)){endGame();return}
+ snake.unshift(head);
+ if(eating){
+  score+=10;$('score').textContent=score;
+  beep(650,.09);placeFood();
+  if(score>best){
+   best=score;$('best').textContent=best;
+   try{localStorage.setItem('snakeBest',best)}catch(e){}
+  }
+  $('speed').textContent=1+Math.floor(score/50);
+ }else snake.pop();
+ draw();
+}
+
+function schedule(){
+ clearInterval(timer);
+ timer=setInterval(update,Math.max(65,145-Math.floor(score/50)*10));
+}
+
+function newGame(){
+ clearInterval(timer);
+ snake=[{x:10,y:10},{x:9,y:10},{x:8,y:10}];
+ dir={x:1,y:0};nextDir={x:1,y:0};
+ score=0;running=true;paused=false;over=false;
+ $('score').textContent=0;$('speed').textContent=1;
+ $('message').style.display='none';
+ $('pause').textContent='Ⅱ PAUSE';
+ placeFood();draw();schedule();
+}
+
+function endGame(){
+ running=false;over=true;clearInterval(timer);beep(160,.3);
+ $('title').textContent='Game Over!';
+ $('description').textContent='Your score: '+score+' • Try again!';
+ $('start').textContent='↻ PLAY AGAIN';
+ $('message').style.display='flex';
+}
+
+function win(){
+ running=false;over=true;clearInterval(timer);
+ $('title').textContent='You Win! 🏆';
+ $('description').textContent='Amazing! You filled the board!';
+ $('start').textContent='PLAY AGAIN';
+ $('message').style.display='flex';
+}
+
+function change(d){
+ if(!running||paused||over)return;
+ const dirs={
+  up:{x:0,y:-1},down:{x:0,y:1},
+  left:{x:-1,y:0},right:{x:1,y:0}
+ };
+ const v=dirs[d];
+ if(v.x===-dir.x&&v.y===-dir.y)return;
+ nextDir=v;
+}
+
+$('start').onclick=newGame;
+$('restart').onclick=newGame;
+$('pause').onclick=()=>{
+ if(!running||over)return;
+ paused=!paused;
+ $('pause').textContent=paused?'▶ RESUME':'Ⅱ PAUSE';
+ if(paused){
+  $('title').textContent='Paused';
+  $('description').textContent='Take a break!';
+  $('start').textContent='▶ RESUME';
+  $('start').onclick=()=>{
+   paused=false;$('message').style.display='none';
+   $('pause').textContent='Ⅱ PAUSE';schedule();
+   $('start').onclick=newGame;
+  };
+  $('message').style.display='flex';
+ }else{
+  $('message').style.display='none';
+  $('start').onclick=newGame;schedule();
+ }
+};
+$('sound').onclick=()=>{
+ sound=!sound;$('sound').textContent=sound?'🔊 SOUND ON':'🔇 SOUND OFF';
+ if(sound)beep();
+};
+document.querySelectorAll('[data-dir]').forEach(b=>{
+ b.addEventListener('pointerdown',e=>{
+  e.preventDefault();change(b.dataset.dir);
+ });
+});
+document.addEventListener('keydown',e=>{
+ const keys={
+  ArrowUp:'up',w:'up',W:'up',
+  ArrowDown:'down',s:'down',S:'down',
+  ArrowLeft:'left',a:'left',A:'left',
+  ArrowRight:'right',d:'right',D:'right'
+ };
+ if(keys[e.key]){e.preventDefault();change(keys[e.key])}
+ if(e.code==='Space'){
+  e.preventDefault();
+  if(!running||over)newGame();
+  else $('pause').click();
+ }
+});
+draw();
+</script>
+</body>
+</html>
